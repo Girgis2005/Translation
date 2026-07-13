@@ -494,9 +494,46 @@ sourceText.addEventListener("input", () => {
   debounceTimer = setTimeout(() => runTranslate("from", false), 600);
 });
 
-// --- TTS output (cloud-based, works identically on every device — no local voice packs needed) ---
+// --- TTS output: try the device's own voice first (fast, reliable, offline),
+// fall back to cloud TTS only if no local voice exists for that language ---
+function getVoicesAsync() {
+  return new Promise((resolve) => {
+    if (!window.speechSynthesis) return resolve([]);
+    const existing = window.speechSynthesis.getVoices();
+    if (existing.length > 0) return resolve(existing);
+    const handler = () => {
+      window.speechSynthesis.removeEventListener("voiceschanged", handler);
+      resolve(window.speechSynthesis.getVoices());
+    };
+    window.speechSynthesis.addEventListener("voiceschanged", handler);
+    setTimeout(() => resolve(window.speechSynthesis.getVoices()), 1200);
+  });
+}
+
+function speakLocal(text, langCode) {
+  return new Promise((resolve, reject) => {
+    getVoicesAsync().then((voices) => {
+      const targetSpeech = LANGS[langCode].speech;
+      const match =
+        voices.find((v) => v.lang === targetSpeech) ||
+        voices.find((v) => v.lang.replace("_", "-").toLowerCase().startsWith(langCode.split("-")[0].toLowerCase()));
+      if (!match) {
+        reject(new Error("no local voice"));
+        return;
+      }
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.voice = match;
+      utter.lang = match.lang;
+      utter.onend = resolve;
+      utter.onerror = () => reject(new Error("local speech failed"));
+      window.speechSynthesis.speak(utter);
+    });
+  });
+}
+
 function chunkText(text, maxLen) {
-  // Google's TTS endpoint caps request length; split on sentence boundaries.
+  // Google's cloud TTS endpoint caps request length; split on sentence boundaries.
   const parts = [];
   let remaining = text.trim();
   while (remaining.length > maxLen) {
@@ -519,19 +556,27 @@ function playAudio(url) {
   });
 }
 
+async function speakCloud(text, langCode) {
+  const isoCode = ISO_CODE[langCode];
+  const chunks = chunkText(text, 180);
+  for (const chunk of chunks) {
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=${isoCode}&client=tw-ob`;
+    await playAudio(url);
+  }
+}
+
 async function speak(side) {
   const text = getBoxText(side);
   if (!text.trim()) return;
   const langCode = langForSide(side);
-  const isoCode = ISO_CODE[langCode];
-  const chunks = chunkText(text, 180);
   try {
-    for (const chunk of chunks) {
-      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=${isoCode}&client=tw-ob`;
-      await playAudio(url);
+    await speakLocal(text, langCode);
+  } catch (localErr) {
+    try {
+      await speakCloud(text, langCode);
+    } catch (cloudErr) {
+      showBanner(`مقدرتش أنطق الترجمة بلغة "${LANGS[langCode].label}" — جرب تثبت صوت اللغة دي من إعدادات الموبايل`);
     }
-  } catch (e) {
-    showBanner("مقدرتش أنطق الترجمة، جرب تاني");
   }
 }
 
