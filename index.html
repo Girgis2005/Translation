@@ -476,43 +476,45 @@ sourceText.addEventListener("input", () => {
   debounceTimer = setTimeout(() => runTranslate("from", false), 600);
 });
 
-// --- TTS output (works for either side) ---
-function getVoicesAsync() {
-  return new Promise((resolve) => {
-    const existing = window.speechSynthesis.getVoices();
-    if (existing.length > 0) return resolve(existing);
-    const handler = () => {
-      window.speechSynthesis.removeEventListener("voiceschanged", handler);
-      resolve(window.speechSynthesis.getVoices());
-    };
-    window.speechSynthesis.addEventListener("voiceschanged", handler);
-    setTimeout(() => resolve(window.speechSynthesis.getVoices()), 1200);
+// --- TTS output (cloud-based, works identically on every device — no local voice packs needed) ---
+function chunkText(text, maxLen) {
+  // Google's TTS endpoint caps request length; split on sentence boundaries.
+  const parts = [];
+  let remaining = text.trim();
+  while (remaining.length > maxLen) {
+    let cut = remaining.lastIndexOf(".", maxLen);
+    if (cut < maxLen * 0.4) cut = remaining.lastIndexOf(" ", maxLen);
+    if (cut <= 0) cut = maxLen;
+    parts.push(remaining.slice(0, cut + 1).trim());
+    remaining = remaining.slice(cut + 1).trim();
+  }
+  if (remaining) parts.push(remaining);
+  return parts;
+}
+
+function playAudio(url) {
+  return new Promise((resolve, reject) => {
+    const audio = new Audio(url);
+    audio.onended = resolve;
+    audio.onerror = () => reject(new Error("audio playback failed"));
+    audio.play().catch(reject);
   });
 }
 
 async function speak(side) {
   const text = getBoxText(side);
   if (!text.trim()) return;
-  if (!window.speechSynthesis) {
-    showBanner("المتصفح ده مش بيدعم قراءة النص صوتيًا");
-    return;
-  }
-  window.speechSynthesis.cancel();
-  const voices = await getVoicesAsync();
   const langCode = langForSide(side);
-  const targetSpeech = LANGS[langCode].speech;
-  const match =
-    voices.find((v) => v.lang === targetSpeech) ||
-    voices.find((v) => v.lang.replace("_", "-").toLowerCase().startsWith(langCode.split("-")[0].toLowerCase()));
-  if (!match) {
-    showBanner(`مفيش صوت متاح للغة "${LANGS[langCode].label}" على الجهاز ده`);
-    return;
+  const isoCode = ISO_CODE[langCode];
+  const chunks = chunkText(text, 180);
+  try {
+    for (const chunk of chunks) {
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=${isoCode}&client=tw-ob`;
+      await playAudio(url);
+    }
+  } catch (e) {
+    showBanner("مقدرتش أنطق الترجمة، جرب تاني");
   }
-  const utter = new SpeechSynthesisUtterance(text);
-  utter.voice = match;
-  utter.lang = match.lang;
-  utter.onerror = () => showBanner("مقدرتش أنطق الترجمة");
-  window.speechSynthesis.speak(utter);
 }
 
 speakFromBtn.addEventListener("click", () => speak("from"));
