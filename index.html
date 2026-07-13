@@ -179,6 +179,10 @@
       <button class="btn btn-ghost" id="modalCancel">إلغاء</button>
       <button class="btn btn-primary" id="modalSave">حفظ</button>
     </div>
+    <div style="margin-top:16px; border-top:1px solid #204442; padding-top:14px;">
+      <button class="btn btn-ghost" id="diagBtn" style="padding:8px 0;">🔍 شوف الأصوات المتاحة على الجهاز</button>
+      <pre id="diagOutput" style="white-space:pre-wrap; font-size:11px; font-family:'JetBrains Mono',monospace; color:#8FADA9; margin-top:8px; max-height:200px; overflow-y:auto;"></pre>
+    </div>
   </div>
 </div>
 
@@ -598,6 +602,17 @@ $("modalSave").addEventListener("click", () => {
   else localStorage.removeItem(STORAGE_KEY);
   modalBackdrop.classList.remove("open");
   bannerHost.innerHTML = "";
+});
+
+$("diagBtn").addEventListener("click", async () => {
+  const out = $("diagOutput");
+  out.textContent = "بيدوّر...";
+  const voices = await getVoicesAsync();
+  if (!voices.length) {
+    out.textContent = "المتصفح مش بيرجع أي أصوات خالص (speechSynthesis فاضي).";
+    return;
+  }
+  out.textContent = voices.map((v) => `${v.lang} — ${v.name}${v.default ? " (default)" : ""}`).join("\n");
 });
 
 // --- Init ---
