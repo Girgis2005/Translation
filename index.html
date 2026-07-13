@@ -409,6 +409,16 @@ async function requestMicAccess() {
   }
 }
 
+const RECOGNITION_LANG = { "ar-EG": "ar-SA", "en-US": "en-US", "pt-BR": "pt-BR" };
+
+let audioUnlocked = false;
+const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+function unlockAudio() {
+  if (audioUnlocked) return;
+  const a = new Audio(SILENT_WAV);
+  a.play().then(() => { audioUnlocked = true; }).catch(() => {});
+}
+
 function micBtnFor(side) {
   return side === "from" ? micFromBtn : micToBtn;
 }
@@ -423,13 +433,15 @@ async function startListening(side) {
   }
   if (isListening) return; // one mic at a time
 
+  unlockAudio(); // must happen synchronously-ish within the click handler chain
+
   const granted = await requestMicAccess();
   if (!granted) return;
   bannerHost.innerHTML = "";
 
   activeSide = side;
   recognition = new SR();
-  recognition.lang = LANGS[langForSide(side)].speech;
+  recognition.lang = RECOGNITION_LANG[langForSide(side)];
   recognition.interimResults = true;
   recognition.continuous = false;
 
@@ -468,8 +480,14 @@ function stopListening() {
   if (activeSide) micBtnFor(activeSide).classList.remove("mic-active");
 }
 
-micFromBtn.addEventListener("click", () => (isListening && activeSide === "from" ? stopListening() : startListening("from")));
-micToBtn.addEventListener("click", () => (isListening && activeSide === "to" ? stopListening() : startListening("to")));
+micFromBtn.addEventListener("click", () => {
+  unlockAudio();
+  isListening && activeSide === "from" ? stopListening() : startListening("from");
+});
+micToBtn.addEventListener("click", () => {
+  unlockAudio();
+  isListening && activeSide === "to" ? stopListening() : startListening("to");
+});
 
 sourceText.addEventListener("input", () => {
   clearTimeout(debounceTimer);
