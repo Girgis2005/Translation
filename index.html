@@ -139,7 +139,10 @@
 <div class="wrap card">
   <div class="card-header">
     <span class="card-label" id="fromLabel"></span>
-    <button class="icon-btn" id="micBtn" aria-label="سجل صوت">🎙</button>
+    <div style="display:flex; gap:8px;">
+      <button class="icon-btn" id="speakFromBtn" disabled aria-label="اسمع النص">🔊</button>
+      <button class="icon-btn" id="micFromBtn" aria-label="سجل صوت">🎙</button>
+    </div>
   </div>
   <textarea id="sourceText" placeholder="اكتب أو دوس المايك واتكلم..."></textarea>
 </div>
@@ -151,12 +154,15 @@
 <div class="wrap card">
   <div class="card-header">
     <span class="card-label" id="toLabel"></span>
-    <button class="icon-btn" id="speakBtn" disabled aria-label="اسمع الترجمة">🔊</button>
+    <div style="display:flex; gap:8px;">
+      <button class="icon-btn" id="micToBtn" aria-label="سجل صوت">🎙</button>
+      <button class="icon-btn" id="speakToBtn" disabled aria-label="اسمع الترجمة">🔊</button>
+    </div>
   </div>
   <div class="output placeholder" id="outputText">هتظهر الترجمة هنا</div>
 </div>
 
-<p class="footnote">التسجيل الصوتي وقراءة النص شغالين أحسن على Chrome</p>
+<p class="footnote">وضع محادثة: كل واحد يدوس المايك اللي جنبه ويتكلم بلغته — التسجيل الصوتي وقراءة النص شغالين أحسن على Chrome</p>
 
 <div class="modal-backdrop" id="modalBackdrop">
   <div class="modal">
@@ -197,8 +203,10 @@ const fromSelect = $("fromLang");
 const toSelect = $("toLang");
 const sourceText = $("sourceText");
 const outputText = $("outputText");
-const micBtn = $("micBtn");
-const speakBtn = $("speakBtn");
+const micFromBtn = $("micFromBtn");
+const micToBtn = $("micToBtn");
+const speakFromBtn = $("speakFromBtn");
+const speakToBtn = $("speakToBtn");
 const swapBtn = $("swapBtn");
 const bridge = $("bridge");
 const bannerHost = $("bannerHost");
@@ -293,29 +301,45 @@ function setTranslating(state) {
   isTranslating = state;
   if (state) {
     bridge.innerHTML = `<span class="dot" style="animation-delay:0s"></span><span class="dot" style="animation-delay:.15s"></span><span class="dot" style="animation-delay:.3s"></span>`;
-    if (!outputText.textContent.trim() || outputText.classList.contains("placeholder")) {
-      outputText.textContent = "بيترجم...";
-      outputText.classList.add("placeholder");
-    }
   } else {
     bridge.innerHTML = `<div class="bridge-line"></div>`;
   }
 }
 
-async function runTranslate() {
-  const text = sourceText.value;
+function getBoxText(side) {
+  if (side === "from") return sourceText.value;
+  return outputText.classList.contains("placeholder") ? "" : outputText.textContent;
+}
+function setBoxText(side, text, isPlaceholder) {
+  if (side === "from") {
+    sourceText.value = text;
+  } else {
+    outputText.textContent = text;
+    outputText.classList.toggle("placeholder", !!isPlaceholder);
+  }
+}
+function otherSide(side) {
+  return side === "from" ? "to" : "from";
+}
+function langForSide(side) {
+  return side === "from" ? fromLang : toLang;
+}
+
+async function runTranslate(side, autoSpeak) {
+  const from = side;
+  const to = otherSide(side);
+  const text = getBoxText(from);
   if (!text.trim()) {
-    outputText.textContent = "هتظهر الترجمة هنا";
-    outputText.classList.add("placeholder");
-    speakBtn.disabled = true;
+    setBoxText(to, to === "to" ? "هتظهر الترجمة هنا" : "", true);
+    if (to === "to") speakToBtn.disabled = true; else speakFromBtn.disabled = true;
     return;
   }
   setTranslating(true);
   try {
-    const result = await translateText(text, fromLang, toLang);
-    outputText.textContent = result;
-    outputText.classList.toggle("placeholder", !result);
-    speakBtn.disabled = !result;
+    const result = await translateText(text, langForSide(from), langForSide(to));
+    setBoxText(to, result, !result);
+    if (to === "to") speakToBtn.disabled = !result; else speakFromBtn.disabled = !result;
+    if (result && autoSpeak) speak(to);
   } catch (e) {
     // banner already shown
   } finally {
@@ -323,24 +347,19 @@ async function runTranslate() {
   }
 }
 
-sourceText.addEventListener("input", () => {
-  clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(runTranslate, 600);
-});
-
 fromSelect.addEventListener("change", () => {
   if (fromSelect.value === toLang) toSelect.value = fromLang;
   fromLang = fromSelect.value;
   toLang = toSelect.value;
   refreshLabels();
-  runTranslate();
+  runTranslate("from");
 });
 toSelect.addEventListener("change", () => {
   if (toSelect.value === fromLang) fromSelect.value = toLang;
   toLang = toSelect.value;
   fromLang = fromSelect.value;
   refreshLabels();
-  runTranslate();
+  runTranslate("from");
 });
 
 swapBtn.addEventListener("click", () => {
@@ -352,11 +371,12 @@ swapBtn.addEventListener("click", () => {
   sourceText.value = outVal;
   outputText.textContent = srcVal || "هتظهر الترجمة هنا";
   outputText.classList.toggle("placeholder", !srcVal);
-  speakBtn.disabled = !srcVal;
+  speakToBtn.disabled = !srcVal;
+  speakFromBtn.disabled = !outVal;
   refreshLabels();
 });
 
-// --- Mic input ---
+// --- Mic input (works for either side: "from" or "to") ---
 function showMicPermissionHelp() {
   bannerHost.innerHTML = `
     <div class="banner">
@@ -389,29 +409,37 @@ async function requestMicAccess() {
   }
 }
 
-async function startListening() {
+function micBtnFor(side) {
+  return side === "from" ? micFromBtn : micToBtn;
+}
+
+let activeSide = null;
+
+async function startListening(side) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
     showBanner("المتصفح ده مش بيدعم التسجيل الصوتي، جرب Chrome");
     return;
   }
+  if (isListening) return; // one mic at a time
 
   const granted = await requestMicAccess();
   if (!granted) return;
   bannerHost.innerHTML = "";
 
+  activeSide = side;
   recognition = new SR();
-  recognition.lang = LANGS[fromLang].speech;
+  recognition.lang = LANGS[langForSide(side)].speech;
   recognition.interimResults = true;
   recognition.continuous = false;
 
   recognition.onstart = () => {
     isListening = true;
-    micBtn.classList.add("mic-active");
+    micBtnFor(side).classList.add("mic-active");
   };
   recognition.onerror = (event) => {
     isListening = false;
-    micBtn.classList.remove("mic-active");
+    micBtnFor(side).classList.remove("mic-active");
     if (event.error === "not-allowed" || event.error === "service-not-allowed") {
       showMicPermissionHelp();
     } else if (event.error === "no-speech") {
@@ -422,25 +450,33 @@ async function startListening() {
   };
   recognition.onend = () => {
     isListening = false;
-    micBtn.classList.remove("mic-active");
+    micBtnFor(side).classList.remove("mic-active");
   };
   recognition.onresult = (event) => {
     let finalTranscript = "";
     for (let i = 0; i < event.results.length; i++) finalTranscript += event.results[i][0].transcript;
-    sourceText.value = finalTranscript;
+    setBoxText(side, finalTranscript, false);
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(runTranslate, 600);
+    debounceTimer = setTimeout(() => runTranslate(side, true), 600);
   };
   recognition.start();
 }
+
 function stopListening() {
   recognition && recognition.stop();
   isListening = false;
-  micBtn.classList.remove("mic-active");
+  if (activeSide) micBtnFor(activeSide).classList.remove("mic-active");
 }
-micBtn.addEventListener("click", () => (isListening ? stopListening() : startListening()));
 
-// --- TTS output ---
+micFromBtn.addEventListener("click", () => (isListening && activeSide === "from" ? stopListening() : startListening("from")));
+micToBtn.addEventListener("click", () => (isListening && activeSide === "to" ? stopListening() : startListening("to")));
+
+sourceText.addEventListener("input", () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => runTranslate("from", false), 600);
+});
+
+// --- TTS output (works for either side) ---
 function getVoicesAsync() {
   return new Promise((resolve) => {
     const existing = window.speechSynthesis.getVoices();
@@ -453,21 +489,23 @@ function getVoicesAsync() {
     setTimeout(() => resolve(window.speechSynthesis.getVoices()), 1200);
   });
 }
-speakBtn.addEventListener("click", async () => {
-  const text = outputText.textContent;
-  if (!text.trim() || outputText.classList.contains("placeholder")) return;
+
+async function speak(side) {
+  const text = getBoxText(side);
+  if (!text.trim()) return;
   if (!window.speechSynthesis) {
     showBanner("المتصفح ده مش بيدعم قراءة النص صوتيًا");
     return;
   }
   window.speechSynthesis.cancel();
   const voices = await getVoicesAsync();
-  const targetSpeech = LANGS[toLang].speech;
+  const langCode = langForSide(side);
+  const targetSpeech = LANGS[langCode].speech;
   const match =
     voices.find((v) => v.lang === targetSpeech) ||
-    voices.find((v) => v.lang.replace("_", "-").toLowerCase().startsWith(toLang.split("-")[0].toLowerCase()));
+    voices.find((v) => v.lang.replace("_", "-").toLowerCase().startsWith(langCode.split("-")[0].toLowerCase()));
   if (!match) {
-    showBanner(`مفيش صوت متاح للغة "${LANGS[toLang].label}" على الجهاز ده`);
+    showBanner(`مفيش صوت متاح للغة "${LANGS[langCode].label}" على الجهاز ده`);
     return;
   }
   const utter = new SpeechSynthesisUtterance(text);
@@ -475,7 +513,10 @@ speakBtn.addEventListener("click", async () => {
   utter.lang = match.lang;
   utter.onerror = () => showBanner("مقدرتش أنطق الترجمة");
   window.speechSynthesis.speak(utter);
-});
+}
+
+speakFromBtn.addEventListener("click", () => speak("from"));
+speakToBtn.addEventListener("click", () => speak("to"));
 
 // --- Settings modal ---
 const modalBackdrop = $("modalBackdrop");
