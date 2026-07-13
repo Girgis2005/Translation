@@ -536,8 +536,10 @@ function speakLocal(text, langCode) {
   });
 }
 
+const CLOUD_VOICE = { "ar-EG": "Zeina", "en-US": "Joanna", "pt-BR": "Vitoria" };
+
 function chunkText(text, maxLen) {
-  // Google's cloud TTS endpoint caps request length; split on sentence boundaries.
+  // The TTS endpoint caps request length; split on sentence/word boundaries.
   const parts = [];
   let remaining = text.trim();
   while (remaining.length > maxLen) {
@@ -561,10 +563,10 @@ function playAudio(url) {
 }
 
 async function speakCloud(text, langCode) {
-  const isoCode = ISO_CODE[langCode];
+  const voice = CLOUD_VOICE[langCode];
   const chunks = chunkText(text, 180);
   for (const chunk of chunks) {
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=${isoCode}&client=tw-ob`;
+    const url = `https://api.streamelements.com/kappa/v2/speech?voice=${voice}&text=${encodeURIComponent(chunk)}`;
     await playAudio(url);
   }
 }
