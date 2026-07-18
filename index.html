@@ -115,6 +115,21 @@
   .btn-primary { background: #E8A33D; color: #0D1F1E; font-weight: 600; }
   .btn-ghost { background: transparent; color: #8FADA9; }
   a.modal-link { color: #E8A33D; }
+  .list-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 4px; border-bottom: 1px solid #204442; cursor: pointer;
+  }
+  .list-item:last-child { border-bottom: none; }
+  .list-item:active { background: #0D1F1E; }
+  .list-item-text { font-size: 14px; }
+  .list-item-sub { font-size: 12px; color: #6B8A87; margin-top: 2px; }
+  .list-empty { font-size: 13px; color: #6B8A87; text-align: center; padding: 20px 0; }
+  .modal-scroll { max-height: 340px; overflow-y: auto; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner {
+    width: 16px; height: 16px; border: 2px solid #2B5350; border-top-color: #E8A33D;
+    border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block;
+  }
 </style>
 </head>
 <body>
@@ -140,6 +155,7 @@
   <div class="card-header">
     <span class="card-label" id="fromLabel"></span>
     <div style="display:flex; gap:8px;">
+      <button class="icon-btn" id="copyFromBtn" aria-label="انسخ النص">📋</button>
       <button class="icon-btn" id="speakFromBtn" disabled aria-label="اسمع النص">🔊</button>
       <button class="icon-btn" id="micFromBtn" aria-label="سجل صوت">🎙</button>
     </div>
@@ -157,10 +173,18 @@
     <div style="display:flex; gap:8px;">
       <button class="icon-btn" id="micToBtn" aria-label="سجل صوت">🎙</button>
       <button class="icon-btn" id="speakToBtn" disabled aria-label="اسمع الترجمة">🔊</button>
+      <button class="icon-btn" id="copyToBtn" aria-label="انسخ الترجمة">📋</button>
     </div>
   </div>
   <div class="output placeholder" id="outputText">هتظهر الترجمة هنا</div>
 </div>
+
+<div class="wrap" style="display:flex; gap:8px; margin-top:14px;">
+  <button class="btn btn-ghost" id="imageBtn" style="flex:1; background:#12302E; border:1px solid #204442; display:flex; align-items:center; justify-content:center; gap:6px;">📷 ترجمة صورة</button>
+  <button class="btn btn-ghost" id="phrasesBtn" style="flex:1; background:#12302E; border:1px solid #204442; display:flex; align-items:center; justify-content:center; gap:6px;">💬 عبارات جاهزة</button>
+  <button class="btn btn-ghost" id="historyBtn" style="flex:1; background:#12302E; border:1px solid #204442; display:flex; align-items:center; justify-content:center; gap:6px;">🕘 السجل</button>
+</div>
+<input type="file" id="imageInput" accept="image/*" style="display:none;" />
 
 <p class="footnote">وضع محادثة: كل واحد يدوس المايك اللي جنبه ويتكلم بلغته — التسجيل الصوتي وقراءة النص شغالين أحسن على Chrome</p>
 
@@ -182,6 +206,48 @@
     <div style="margin-top:16px; border-top:1px solid #204442; padding-top:14px;">
       <button class="btn btn-ghost" id="diagBtn" style="padding:8px 0;">🔍 شوف الأصوات المتاحة على الجهاز</button>
       <pre id="diagOutput" style="white-space:pre-wrap; font-size:11px; font-family:'JetBrains Mono',monospace; color:#8FADA9; margin-top:8px; max-height:200px; overflow-y:auto;"></pre>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="phrasesBackdrop">
+  <div class="modal">
+    <h2>عبارات جاهزة</h2>
+    <p>دوس على أي عبارة عشان تتحط في الكارت الأول وتتترجم تلقائي.</p>
+    <div class="modal-scroll" id="phrasesList"></div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="btn btn-ghost" id="phrasesClose">قفل</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="historyBackdrop">
+  <div class="modal">
+    <h2>سجل الترجمات</h2>
+    <div class="modal-scroll" id="historyList"></div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="btn btn-ghost" id="historyClear">امسح السجل</button>
+      <button class="btn btn-primary" id="historyClose">قفل</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="imageBackdrop">
+  <div class="modal">
+    <h2>ترجمة صورة</h2>
+    <div style="text-align:center; margin-bottom:12px;">
+      <img id="imagePreview" style="max-width:100%; max-height:220px; border-radius:10px; display:none;" />
+    </div>
+    <p id="imageModalText">بيقرا النص من الصورة ويترجمه...</p>
+    <div style="display:flex; align-items:center; justify-content:center; padding:10px 0;">
+      <span class="spinner" id="imageSpinner"></span>
+    </div>
+    <div class="modal-actions" id="imageDownloadRow" style="display:none; flex-wrap:wrap;">
+      <button class="btn btn-ghost" id="downloadTextBtn">⬇ نص .txt</button>
+      <button class="btn btn-primary" id="downloadImageBtn">⬇ صورة مترجمة</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="imageModalClose">قفل</button>
     </div>
   </div>
 </div>
@@ -211,11 +277,65 @@ const micFromBtn = $("micFromBtn");
 const micToBtn = $("micToBtn");
 const speakFromBtn = $("speakFromBtn");
 const speakToBtn = $("speakToBtn");
+const copyFromBtn = $("copyFromBtn");
+const copyToBtn = $("copyToBtn");
 const swapBtn = $("swapBtn");
 const bridge = $("bridge");
 const bannerHost = $("bannerHost");
 const fromLabel = $("fromLabel");
 const toLabel = $("toLabel");
+const imageBtn = $("imageBtn");
+const imageInput = $("imageInput");
+const phrasesBtn = $("phrasesBtn");
+const historyBtn = $("historyBtn");
+
+const PHRASEBOOK = {
+  "ar-EG": [
+    { cat: "تحية", text: "إزيك عامل إيه" },
+    { cat: "تحية", text: "صباح الخير" },
+    { cat: "تحية", text: "شكرًا جدًا" },
+    { cat: "تحية", text: "من فضلك" },
+    { cat: "تحية", text: "آسف" },
+    { cat: "أرقام", text: "بكام ده" },
+    { cat: "أرقام", text: "واحد اتنين تلاتة" },
+    { cat: "اتجاهات", text: "فين الحمام" },
+    { cat: "اتجاهات", text: "يمين ولا شمال" },
+    { cat: "اتجاهات", text: "قريب من هنا" },
+    { cat: "طوارئ", text: "محتاج مساعدة" },
+    { cat: "طوارئ", text: "اتصل بالإسعاف" },
+  ],
+  "en-US": [
+    { cat: "Greeting", text: "How are you doing" },
+    { cat: "Greeting", text: "Good morning" },
+    { cat: "Greeting", text: "Thank you very much" },
+    { cat: "Greeting", text: "Please" },
+    { cat: "Greeting", text: "Sorry" },
+    { cat: "Numbers", text: "How much is this" },
+    { cat: "Numbers", text: "One two three" },
+    { cat: "Directions", text: "Where is the bathroom" },
+    { cat: "Directions", text: "Left or right" },
+    { cat: "Directions", text: "Is it close by" },
+    { cat: "Emergency", text: "I need help" },
+    { cat: "Emergency", text: "Call an ambulance" },
+  ],
+  "pt-BR": [
+    { cat: "Saudação", text: "Como você está" },
+    { cat: "Saudação", text: "Bom dia" },
+    { cat: "Saudação", text: "Muito obrigado" },
+    { cat: "Saudação", text: "Por favor" },
+    { cat: "Saudação", text: "Desculpa" },
+    { cat: "Números", text: "Quanto custa isso" },
+    { cat: "Números", text: "Um dois três" },
+    { cat: "Direções", text: "Onde fica o banheiro" },
+    { cat: "Direções", text: "Esquerda ou direita" },
+    { cat: "Direções", text: "É perto daqui" },
+    { cat: "Emergência", text: "Preciso de ajuda" },
+    { cat: "Emergência", text: "Chame uma ambulância" },
+  ],
+};
+
+const HISTORY_KEY = "gesr_history";
+const HISTORY_MAX = 20;
 
 function populateSelects() {
   [fromSelect, toSelect].forEach((sel) => {
@@ -344,6 +464,7 @@ async function runTranslate(side, autoSpeak) {
     setBoxText(to, result, !result);
     if (to === "to") speakToBtn.disabled = !result; else speakFromBtn.disabled = !result;
     if (result && autoSpeak) speak(to);
+    if (result) saveHistory(langForSide(from), langForSide(to), text, result);
   } catch (e) {
     // banner already shown
   } finally {
@@ -564,6 +685,283 @@ $("diagBtn").addEventListener("click", async () => {
   }
   out.textContent = voices.map((v) => `${v.lang} — ${v.name}${v.default ? " (default)" : ""}`).join("\n");
 });
+
+// --- Copy buttons ---
+async function copyText(text) {
+  if (!text.trim()) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    showBanner("اتنسخ ✓", "info");
+  } catch (e) {
+    showBanner("مقدرتش أنسخ، جرب تحدد وتنسخ يدوي");
+  }
+}
+copyFromBtn.addEventListener("click", () => copyText(getBoxText("from")));
+copyToBtn.addEventListener("click", () => copyText(getBoxText("to")));
+
+// --- History ---
+function loadHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+  } catch (e) {
+    return [];
+  }
+}
+function saveHistory(from, to, sourceStr, resultStr) {
+  const list = loadHistory();
+  list.unshift({ from, to, source: sourceStr, result: resultStr, ts: Date.now() });
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, HISTORY_MAX)));
+}
+function renderHistory() {
+  const list = loadHistory();
+  const host = $("historyList");
+  if (!list.length) {
+    host.innerHTML = `<div class="list-empty">السجل فاضي لحد دلوقتي</div>`;
+    return;
+  }
+  host.innerHTML = list
+    .map(
+      (item, i) => `
+      <div class="list-item" data-idx="${i}">
+        <div>
+          <div class="list-item-text">${item.source}</div>
+          <div class="list-item-sub">${LANGS[item.from]?.label || item.from} → ${LANGS[item.to]?.label || item.to} · ${item.result}</div>
+        </div>
+      </div>`
+    )
+    .join("");
+  host.querySelectorAll(".list-item").forEach((el) => {
+    el.addEventListener("click", () => {
+      const item = list[Number(el.dataset.idx)];
+      if (LANGS[item.from]) { fromLang = item.from; fromSelect.value = fromLang; }
+      if (LANGS[item.to]) { toLang = item.to; toSelect.value = toLang; }
+      refreshLabels();
+      setBoxText("from", item.source, false);
+      setBoxText("to", item.result, false);
+      speakToBtn.disabled = false;
+      speakFromBtn.disabled = false;
+      historyBackdrop.classList.remove("open");
+    });
+  });
+}
+const historyBackdrop = $("historyBackdrop");
+historyBtn.addEventListener("click", () => {
+  renderHistory();
+  historyBackdrop.classList.add("open");
+});
+$("historyClose").addEventListener("click", () => historyBackdrop.classList.remove("open"));
+historyBackdrop.addEventListener("click", (e) => { if (e.target === historyBackdrop) historyBackdrop.classList.remove("open"); });
+$("historyClear").addEventListener("click", () => {
+  localStorage.removeItem(HISTORY_KEY);
+  renderHistory();
+});
+
+// --- Phrasebook ---
+const phrasesBackdrop = $("phrasesBackdrop");
+function renderPhrases() {
+  const phrases = PHRASEBOOK[fromLang] || [];
+  const host = $("phrasesList");
+  let currentCat = null;
+  let html = "";
+  phrases.forEach((p) => {
+    if (p.cat !== currentCat) {
+      currentCat = p.cat;
+      html += `<div class="list-item-sub" style="padding:10px 4px 2px;">${currentCat}</div>`;
+    }
+    html += `<div class="list-item" data-text="${p.text.replace(/"/g, "&quot;")}"><div class="list-item-text">${p.text}</div></div>`;
+  });
+  host.innerHTML = html;
+  host.querySelectorAll(".list-item").forEach((el) => {
+    el.addEventListener("click", () => {
+      setBoxText("from", el.dataset.text, false);
+      phrasesBackdrop.classList.remove("open");
+      clearTimeout(debounceTimer);
+      runTranslate("from", false);
+    });
+  });
+}
+phrasesBtn.addEventListener("click", () => {
+  renderPhrases();
+  phrasesBackdrop.classList.add("open");
+});
+$("phrasesClose").addEventListener("click", () => phrasesBackdrop.classList.remove("open"));
+phrasesBackdrop.addEventListener("click", (e) => { if (e.target === phrasesBackdrop) phrasesBackdrop.classList.remove("open"); });
+
+// --- Image translation (requires Anthropic API key — OCR needs vision) ---
+const imageBackdrop = $("imageBackdrop");
+const imageModalText = $("imageModalText");
+const imageSpinner = $("imageSpinner");
+const imagePreview = $("imagePreview");
+const imageDownloadRow = $("imageDownloadRow");
+let lastImageFile = null;
+let lastImageResult = "";
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+imageBtn.addEventListener("click", () => {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    showBanner('ترجمة الصور محتاجة مفتاح Anthropic API — حطه من ⚙ الأول', "info");
+    return;
+  }
+  imageInput.click();
+});
+
+function wrapCanvasText(ctx, text, maxWidth) {
+  const words = text.split(" ");
+  const lines = [];
+  let line = "";
+  for (const word of words) {
+    const test = line ? line + " " + word : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function buildTranslatedImage(imgEl, translatedText, isRtl) {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  const w = imgEl.naturalWidth;
+  const fontSize = Math.max(18, Math.round(w * 0.035));
+  const padding = Math.round(fontSize * 0.8);
+  ctx.font = `${fontSize}px sans-serif`;
+  const maxTextWidth = w - padding * 2;
+  const lines = wrapCanvasText(ctx, translatedText, maxTextWidth);
+  const lineHeight = fontSize * 1.4;
+  const bannerHeight = lines.length * lineHeight + padding * 2;
+
+  canvas.width = w;
+  canvas.height = imgEl.naturalHeight + bannerHeight;
+  ctx.drawImage(imgEl, 0, 0, w, imgEl.naturalHeight);
+
+  ctx.fillStyle = "#0D1F1E";
+  ctx.fillRect(0, imgEl.naturalHeight, w, bannerHeight);
+
+  ctx.font = `${fontSize}px sans-serif`;
+  ctx.fillStyle = "#F2EDE4";
+  ctx.textBaseline = "top";
+  ctx.direction = isRtl ? "rtl" : "ltr";
+  ctx.textAlign = isRtl ? "right" : "left";
+  const textX = isRtl ? w - padding : padding;
+  lines.forEach((ln, i) => {
+    ctx.fillText(ln, textX, imgEl.naturalHeight + padding + i * lineHeight);
+  });
+
+  return canvas;
+}
+
+function triggerDownload(url, filename) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+$("downloadTextBtn").addEventListener("click", () => {
+  if (!lastImageResult) return;
+  const blob = new Blob([lastImageResult], { type: "text/plain;charset=utf-8" });
+  triggerDownload(URL.createObjectURL(blob), "ترجمة.txt");
+});
+
+$("downloadImageBtn").addEventListener("click", () => {
+  if (!lastImageResult || !imagePreview.complete) return;
+  const isRtl = LANGS[toLang].dir === "rtl";
+  const canvas = buildTranslatedImage(imagePreview, lastImageResult, isRtl);
+  canvas.toBlob((blob) => {
+    triggerDownload(URL.createObjectURL(blob), "صورة-مترجمة.png");
+  }, "image/png");
+});
+
+imageInput.addEventListener("change", async () => {
+  const file = imageInput.files[0];
+  imageInput.value = ""; // allow re-selecting the same file later
+  if (!file) return;
+  lastImageFile = file;
+  lastImageResult = "";
+
+  const objectUrl = URL.createObjectURL(file);
+  imagePreview.src = objectUrl;
+  imagePreview.style.display = "block";
+  imageModalText.textContent = "بيقرا النص من الصورة ويترجمه...";
+  imageSpinner.style.display = "inline-block";
+  imageDownloadRow.style.display = "none";
+  imageBackdrop.classList.add("open");
+
+  try {
+    const base64 = await fileToBase64(file);
+    const mediaType = file.type || "image/jpeg";
+    const toLabelEn = LANGS[toLang].labelEn;
+    const system = toLang === "ar-EG"
+      ? `Read any text visible in this image and translate it into natural, everyday spoken Egyptian Arabic (Masri). Reply with ONLY the translation, no notes, no quotes, no explanation of what the image shows. If there's no readable text, reply with exactly: NO_TEXT_FOUND`
+      : `Read any text visible in this image and translate it into natural, fluent ${toLabelEn}. Reply with ONLY the translation, no notes, no quotes, no explanation of what the image shows. If there's no readable text, reply with exactly: NO_TEXT_FOUND`;
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": getApiKey(),
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1000,
+        system,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+            { type: "text", text: "Translate the text in this image." },
+          ],
+        }],
+      }),
+    });
+
+    if (!res.ok) {
+      if (res.status === 401) throw new Error("KEY_INVALID");
+      throw new Error("REQUEST_FAILED");
+    }
+    const data = await res.json();
+    const block = data.content.find((b) => b.type === "text");
+    const result = block ? block.text.trim() : "";
+
+    imageSpinner.style.display = "none";
+    if (!result || result === "NO_TEXT_FOUND") {
+      imageModalText.textContent = "مقدرتش ألاقي نص واضح في الصورة، جرب صورة أوضح";
+      return;
+    }
+    imageModalText.textContent = result;
+    imageModalText.dir = LANGS[toLang].dir;
+    lastImageResult = result;
+    imageDownloadRow.style.display = "flex";
+    setBoxText("to", result, false);
+    speakToBtn.disabled = false;
+    saveHistory("image", toLang, "📷 صورة", result);
+  } catch (err) {
+    imageSpinner.style.display = "none";
+    imageModalText.textContent =
+      err.message === "KEY_INVALID"
+        ? "المفتاح غلط أو منتهي — عدّله من الإعدادات ⚙"
+        : "فشلت قراءة الصورة، جرب تاني";
+  }
+});
+$("imageModalClose").addEventListener("click", () => imageBackdrop.classList.remove("open"));
+imageBackdrop.addEventListener("click", (e) => { if (e.target === imageBackdrop) imageBackdrop.classList.remove("open"); });
 
 // --- Init ---
 populateSelects();
