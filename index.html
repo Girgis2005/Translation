@@ -805,6 +805,41 @@ function fileToBase64(file) {
   });
 }
 
+function downscaleImage(file, maxDim) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      let { width, height } = img;
+      if (width <= maxDim && height <= maxDim) {
+        URL.revokeObjectURL(url);
+        resolve({ base64: null, needsResize: false });
+        return;
+      }
+      const scale = maxDim / Math.max(width, height);
+      width = Math.round(width * scale);
+      height = Math.round(height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(
+        (blob) => {
+          const r = new FileReader();
+          r.onload = () => resolve({ base64: r.result.split(",")[1], needsResize: true, mediaType: "image/jpeg" });
+          r.onerror = reject;
+          r.readAsDataURL(blob);
+        },
+        "image/jpeg",
+        0.85
+      );
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
 imageBtn.addEventListener("click", () => {
   const apiKey = getApiKey();
   if (!apiKey) {
@@ -903,8 +938,9 @@ imageInput.addEventListener("change", async () => {
   imageBackdrop.classList.add("open");
 
   try {
-    const base64 = await fileToBase64(file);
-    const mediaType = file.type || "image/jpeg";
+    const resized = await downscaleImage(file, 1568);
+    const base64 = resized.needsResize ? resized.base64 : await fileToBase64(file);
+    const mediaType = resized.needsResize ? resized.mediaType : (file.type || "image/jpeg");
     const toLabelEn = LANGS[toLang].labelEn;
     const system = toLang === "ar-EG"
       ? `Read any text visible in this image and translate it into natural, everyday spoken Egyptian Arabic (Masri). Reply with ONLY the translation, no notes, no quotes, no explanation of what the image shows. If there's no readable text, reply with exactly: NO_TEXT_FOUND`
@@ -933,8 +969,13 @@ imageInput.addEventListener("change", async () => {
     });
 
     if (!res.ok) {
-      if (res.status === 401) throw new Error("KEY_INVALID");
-      throw new Error("REQUEST_FAILED");
+      const errBody = await res.text();
+      let detail = errBody;
+      try { detail = JSON.parse(errBody)?.error?.message || errBody; } catch (e) {}
+      const err = new Error(res.status === 401 ? "KEY_INVALID" : "REQUEST_FAILED");
+      err.detail = detail;
+      err.status = res.status;
+      throw err;
     }
     const data = await res.json();
     const block = data.content.find((b) => b.type === "text");
@@ -954,10 +995,13 @@ imageInput.addEventListener("change", async () => {
     saveHistory("image", toLang, "📷 صورة", result);
   } catch (err) {
     imageSpinner.style.display = "none";
-    imageModalText.textContent =
-      err.message === "KEY_INVALID"
-        ? "المفتاح غلط أو منتهي — عدّله من الإعدادات ⚙"
-        : "فشلت قراءة الصورة، جرب تاني";
+    if (err.message === "KEY_INVALID") {
+      imageModalText.textContent = "المفتاح غلط أو منتهي — عدّله من الإعدادات ⚙";
+    } else if (err.detail) {
+      imageModalText.textContent = `فشلت (${err.status || ""}): ${err.detail}`;
+    } else {
+      imageModalText.textContent = "فشلت قراءة الصورة، جرب تاني — " + (err.message || "");
+    }
   }
 });
 $("imageModalClose").addEventListener("click", () => imageBackdrop.classList.remove("open"));
